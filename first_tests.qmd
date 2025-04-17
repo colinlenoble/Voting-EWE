@@ -1,0 +1,89 @@
+---
+title: "Extreme Weather Events and Voting"
+format: html
+jupyter: true
+---
+
+# Introduction
+
+blablabla
+
+## Catnat dataset
+
+```{r}
+# if (!requireNamespace("tidyverse", quietly = TRUE)) install.packages("tidyverse")
+# if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+# if (!requireNamespace("gganimate", quietly = TRUE)) install.packages("gganimate")
+# if (!requireNamespace("gifski", quietly = TRUE)) install.packages("gifski")
+# if (!requireNamespace("ggplotify", quietly = TRUE)) install.packages("ggplotify")
+# if (!requireNamespace("fixest", quietly = TRUE)) install.packages("fixest")
+
+library(tidyverse)
+library(ggplot2)
+library(gganimate)
+library(gifski)
+library(ggplotify)
+library(fixest)
+
+df_catnat <- read.csv("../data/catnat_gaspar_mandat.csv", sep = ";")
+df_catnat <- df_catnat %>% mutate(Year = as.Date(election, format = "%Y-%m-%d"))
+#election is now an integer in df_catnat
+df_catnat$Year <- as.integer(format(df_catnat$Year, "%Y"))
+
+
+df_legis <- read.csv("../data/legislatives.csv", sep = ",")
+
+
+# #change the name codcommune in codecommune in dfcatnat
+df_catnat <- df_catnat %>% rename(codecommune = cod_commune)
+df_catnat$codecommune <- as.character(df_catnat$codecommune)
+df_legis$codecommune <- as.character(df_legis$codecommune)
+
+#merge df_catnat and df_legis on codecommune and election
+
+df_legis <- df_legis %>% left_join(df_catnat, by = c("codecommune" , "Year"))
+#calculate the national share of each party
+df_legis <- df_legis %>% group_by(Year, vote_type) %>% mutate(national_share = sum(share * votants)/sum(votants)) %>% ungroup()
+
+full_rev <- read.csv("../data/revenu.csv", sep = ",")
+full_rev <- full_rev %>% rename(codecommune = CODGEO)
+full_rev$codecommune <- as.character(full_rev$codecommune)
+full_rev <- full_rev %>% filter(Year == 2017)
+
+df_legis <- df_legis %>% left_join(full_rev, by = c("codecommune" , "Year"))
+
+#make a column city if Population > 10000, else rural
+df_legis <- df_legis %>% mutate(city = ifelse(Population > 10000, "city", "rural"))
+
+#print the national share of each party, and elections
+library(ggplot2)
+
+# Plot the national share by Year and vote_type
+df_legis %>%
+    group_by(Year, vote_type) %>%
+    summarise(national_share = unique(national_share))
+```
+
+
+```{r}
+data <- df_legis %>%
+    filter(vote_type == "G") %>%
+    select(codecommune, Year, share, mandat, mandat_2, mandat_4, Med_Niveau_vie, Gini, Population, dep, city, absention) %>%
+    ungroup()
+
+#remove NA from data
+data <- data %>% filter(!is.na(share) & !is.na(mandat_2))
+# data <- as.data.frame(data)
+
+# Ensure column names match the formula in the model
+# colnames(data) <- make.names(colnames(data))
+
+# model <- feols(absention ~ mandat | city + dep + Year, data)
+# summary(model)
+
+# model <- feols(absention ~ mandat_4 | codecommune + Year, data = data)
+# summary(model)
+
+model <- feols(share ~ mandat_2 | codecommune + Year, data)
+summary(model)
+```
