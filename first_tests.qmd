@@ -25,13 +25,15 @@ library(gifski)
 library(ggplotify)
 library(fixest)
 
-df_catnat <- read.csv("../data/catnat_gaspar_mandat.csv", sep = ";")
+df_catnat <- read.csv("../data/catnat_gaspar_mandat_legis.csv", sep = ";")
 df_catnat <- df_catnat %>% mutate(Year = as.Date(election, format = "%Y-%m-%d"))
 #election is now an integer in df_catnat
 df_catnat$Year <- as.integer(format(df_catnat$Year, "%Y"))
 
 
 df_legis <- read.csv("../data/legislatives.csv", sep = ",")
+
+
 
 
 # #change the name codcommune in codecommune in dfcatnat
@@ -51,8 +53,10 @@ full_rev <- read.csv("../data/revenu.csv", sep = ",")
 full_rev <- full_rev %>% rename(codecommune = CODGEO)
 full_rev$codecommune <- as.character(full_rev$codecommune)
 full_rev <- full_rev %>% filter(Year == 2017)
+#drop Year from full_ref
+full_rev <- full_rev %>% select(-Year)
 
-df_legis <- df_legis %>% left_join(full_rev, by = c("codecommune" , "Year"))
+df_legis <- df_legis %>% left_join(full_rev, by = c("codecommune"))
 
 #make a column city if Population > 10000, else rural
 df_legis <- df_legis %>% mutate(city = ifelse(Population > 10000, "city", "rural"))
@@ -70,7 +74,7 @@ df_legis %>%
 ```{r}
 data <- df_legis %>%
     filter(vote_type == "D") %>%
-    select(codecommune, Year, share, mandat, mandat_2, mandat_4, Med_Niveau_vie, Gini, Population, dep, city, absention) %>%
+    select(codecommune, Year, share, mandat, mandat_2, mandat_4, Med_Niveau_vie, Gini, Population, dep, city, absention, Pop_bac, Pop_Sup5) %>%
     ungroup()
 
 #normalize Gini mandat_2 and Med_Niveau_vie
@@ -81,34 +85,108 @@ data$mandat_2[is.na(data$mandat_2)] <- 0
 data$mandat[is.na(data$mandat)] <- 0
 data$mandat_4[is.na(data$mandat_4)] <- 0
 #remove NA from data
-data <- data %>% filter(!is.na(share) & !is.na(mandat_2), !is.na(Med_Niveau_vie))
+data <- data %>% filter(!is.na(share) & !is.na(mandat_2) & !is.na(Med_Niveau_vie))
+
+# data <- data %>%
+#     mutate(Med_Niveau_vie = (Med_Niveau_vie - min(Med_Niveau_vie)) / (max(Med_Niveau_vie) - min(Med_Niveau_vie)),
+#               share = (share - min(share)) / (max(share) - min(share)))
 
 data <- data %>%
-    mutate(  Med_Niveau_vie = (Med_Niveau_vie - min(Med_Niveau_vie)) / (max(Med_Niveau_vie) - min(Med_Niveau_vie)),
-              share = (share - min(share)) / (max(share) - min(share)))
+    mutate(Med_Niveau_vie_sq = Med_Niveau_vie^2)
+
 
 
 #mandat_2 becomes a boolean is mandat_2 > 0
 data <- data %>% mutate(mandat_2 = ifelse(mandat_2 > 0, 1, 0))
 
-# data <- as.data.frame(data)
 
-# Ensure column names match the formula in the model
-# colnames(data) <- make.names(colnames(data))
-
-# model <- feols(absention ~ mandat | city + dep + Year, data)
-# summary(model)
-
-# model <- feols(absention ~ mandat_4 | codecommune + Year, data = data)
-# summary(model)
-
-model <- feols(share ~ mandat_2 * Med_Niveau_vie | city + dep + Year, data)
+model <- feols(share ~ mandat_2 | codecommune + Year , data)
 summary(model)
-#make a ggplot of the model
+
+```
+
+
+
+### For the reelection of the mayors
+
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(gganimate)
+library(gifski)
+library(ggplotify)
 library(fixest)
 
-model_plot <- coefplot(model, main = "Model Coefficients") +
-    labs(x = "Coefficient",
-         y = "Variable") +
-    theme_minimal()
+df_catnat <- read.csv("../data/catnat_gaspar_mandat_muni.csv", sep = ";")
+df_catnat <- df_catnat %>% mutate(Year = as.Date(election, format = "%Y-%m-%d"))
+#election is now an integer in df_catnat
+df_catnat$Year <- as.integer(format(df_catnat$Year, "%Y"))
+
+
+df_reelec <- read.csv("../data/reelection_muni.csv", sep = ",")
+
+#print the first 10 rows of df_reelec
+head(df_reelec, 1)
+
+head(df_catnat, 1)
+# #change the name codcommune in codecommune in dfcatnat
+df_catnat <- df_catnat %>% rename(codecommune = cod_commune)
+df_reelec <- df_reelec %>% rename(codecommune = GEO_INSEE)
+df_catnat$codecommune <- as.character(df_catnat$codecommune)
+df_reelec$codecommune <- as.character(df_reelec$codecommune)
+#for the codecommune with only 4 digits, add 0 in front of the codecommune
+df_reelec$codecommune <- ifelse(nchar(df_reelec$codecommune) == 4, paste0("0", df_reelec$codecommune), df_reelec$codecommune)
+
+#merge df_catnat and df_reelec on codecommune and election
+
+df_reelec <- df_reelec %>% left_join(df_catnat, by = c("codecommune" , "Year"))
+#calculate the national share of each party
+
+
+full_rev <- read.csv("../data/revenu.csv", sep = ",")
+full_rev <- full_rev %>% rename(codecommune = CODGEO)
+full_rev$codecommune <- as.character(full_rev$codecommune)
+full_rev <- full_rev %>% filter(Year == 2017)
+#drop Year from full_ref
+full_rev <- full_rev %>% select(-Year)
+
+df_reelec <- df_reelec %>% left_join(full_rev, by = c("codecommune"))
+
+#make a column city if Population > 10000, else rural
+df_reelec <- df_reelec %>% mutate(city = ifelse(Population > 10000, "city", "rural"))
+df_reelec$dep <- substr(df_reelec$codecommune, 1, 2)
+```
+
+
+```{r}
+data <- df_reelec %>%
+    select(codecommune, Year, reelected_2020, mandat, mandat_2, mandat_4, Med_Niveau_vie, Gini, Population, dep, city, Pop_bac, Pop_Sup5) %>%
+    ungroup()
+
+#normalize Gini mandat_2 and Med_Niveau_vie
+
+
+#fill Nan in mandat_2 mandat and mandat_4 with 0
+data$mandat_2[is.na(data$mandat_2)] <- 0
+data$mandat[is.na(data$mandat)] <- 0
+data$mandat_4[is.na(data$mandat_4)] <- 0
+#remove NA from data
+data <- data %>% filter(!is.na(reelected_2020) & !is.na(mandat_2) & !is.na(Med_Niveau_vie))
+
+# data <- data %>%
+#     mutate(Med_Niveau_vie = (Med_Niveau_vie - min(Med_Niveau_vie)) / (max(Med_Niveau_vie) - min(Med_Niveau_vie)),
+#               share = (share - min(share)) / (max(share) - min(share)))
+
+data <- data %>%
+    mutate(Med_Niveau_vie_sq = Med_Niveau_vie^2)
+
+
+
+#mandat_2 becomes a boolean is mandat_2 > 0
+data <- data %>% mutate(mandat_2 = ifelse(mandat_2 > 0, 1, 0))
+
+
+model <- feols(reelected_2020 ~ Pop_bac + mandat_2 | dep , data)
+summary(model)
 ```
